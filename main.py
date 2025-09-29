@@ -1,30 +1,45 @@
-import argparse
-import asyncio
+import httpx
+import uvicorn
+from fastapi import FastAPI, Request, Response
+from utils import parse_args
 
-def parse_args():
-    parser = argparse.ArgumentParser()
+def create_app(origin: str, port: int):
+    app = FastAPI()
 
-    parser.add_argument(
-        "--port", "-p",
-        type=int,
-        default=8000,
-        help="Port number the proxy should listen on"
-    )
-    parser.add_argument(
-        "--origin", "-o",
-        required=True,
-        help="Origin server URL to forward requests to"
-    )
+    @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    async def proxy(path: str, request: Request):
+        print(origin)
+        print(port)
+        url = f"{origin}/{path}"
+        print(url)
+        
+        #if request.method == "GET":
+            #check if request is cached
+                #return cached response
 
-    return parser.parse_args()
+        async with httpx.AsyncClient() as client:
+            forwarded = await client.request(
+                method=request.method,
+                url=url,
+                params=request.query_params,
+                headers=dict(request.headers),
+                content=await request.body()
+            )
 
-async def main():
-    args = parse_args()
-    port = args.port
-    origin = args.origin
+        #if request.method == "GET":
+            #cache request and response
 
-    print(port)
-    print(origin)
+        return Response(
+            content = forwarded.content,
+            status_code = forwarded.status_code,
+            headers = dict(forwarded.headers),
+        )
+
+    return app
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    args = parse_args()
+    app = create_app(args.origin, args.port)
+
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
