@@ -1,21 +1,28 @@
 import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
-from utils import parse_args
+from utils import parse_args, get_from_cache, add_to_cache
 
 def create_app(origin: str, port: int):
     app = FastAPI()
+    cache = {}
 
     @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     async def proxy(path: str, request: Request):
+        url = f"{origin}/{path}"
         print(origin)
         print(port)
-        url = f"{origin}/{path}"
         print(url)
         
-        #if request.method == "GET":
-            #check if request is cached
-                #return cached response
+        if request.method == "GET":
+            response = get_from_cache(cache, url, request.query_params)
+            if response:
+                print("returned from cache")
+                return Response(
+                    content = response.content,
+                    status_code = response.status_code,
+                    headers = dict(response.headers)
+                )
 
         async with httpx.AsyncClient() as client:
             forwarded = await client.request(
@@ -26,9 +33,10 @@ def create_app(origin: str, port: int):
                 content=await request.body()
             )
 
-        #if request.method == "GET":
-            #cache request and response
+        if request.method == "GET":
+            add_to_cache(cache, url, request.query_params, forwarded)
 
+        print("returned from forwarded response")
         return Response(
             content = forwarded.content,
             status_code = forwarded.status_code,
