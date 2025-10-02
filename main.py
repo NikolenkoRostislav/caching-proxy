@@ -40,7 +40,7 @@ def create_app(origin: str, port: int):
             directives = [d.strip() for d in cache_control.split(",")]
             for d in directives:
                 if d.startswith("max-age"):
-                    ttl = d.split("=")[1]
+                    ttl = int(d.split("=")[1])
             if not "no-cache" in directives and not "no-store" in directives:
                 add_to_cache(cache, url, request.query_params, request.headers, forwarded, forwarded.headers, ttl)
 
