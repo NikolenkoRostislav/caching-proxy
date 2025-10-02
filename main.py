@@ -36,7 +36,7 @@ def create_app(origin: str, port: int):
 
         if request.method == "GET":
             ttl = 3600
-            cache_control = forwarded.headers.get("cache-control")
+            cache_control = forwarded.headers.get("cache-control") or ""
             directives = [d.strip() for d in cache_control.split(",")]
             for d in directives:
                 if d.startswith("max-age"):
