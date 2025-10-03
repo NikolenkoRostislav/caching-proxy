@@ -36,8 +36,7 @@ def create_app(origin: str, port: int):
 
         if request.method == "GET":
             ttl = 3600
-            directives = parse_cache_control_directives(forwarded.headers.get("cache-control") or "")
-            max_age = check_directive("max-age", directives)
+            max_age = check_directive("max-age", forwarded.headers)
             if max_age:
                 ttl = int(max_age)
             add_to_cache(cache, url, request.query_params, request.headers, forwarded, forwarded.headers, ttl)

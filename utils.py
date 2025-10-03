@@ -18,19 +18,23 @@ def parse_args():
 
     return parser.parse_args()
 
-def parse_cache_control_directives(cache_control: str):
+def _parse_cache_control_directives(headers: dict):
+    cache_control = headers.get("cache-control") or ""
     return [d.strip() for d in cache_control.split(",")]
 
-def check_directive(directive: str, directives):
+def check_directive(directive: str, headers: dict):
+    directives = _parse_cache_control_directives(headers)
+    if directive in directives:
+        return True
+
     for d in directives:
         if d.startswith(directive):
-            result = d.split("=")
-            if len(result) == 1:
-                return True
-            return result[1]
+            return d.split("=")[1]
     return False
 
-def check_cache_behaviour(directives):
+def check_cache_behaviour(headers: dict):
+    directives = _parse_cache_control_directives(headers)
+
     if "no-store" in directives:
         return "no-store"
     elif "no-cache" in directives:
@@ -52,8 +56,7 @@ def get_from_cache(cache: dict, url: str, params: dict, request_headers: dict):
 
         if all(request_headers.get(h) == v for h, v in cache_vary_values):
             value, expire_time = cache[cache_key]
-            directives = parse_cache_control_directives(value.headers.get("cache-control") or "")
-            behaviour = check_cache_behaviour(directives)
+            behaviour = check_cache_behaviour(value.headers)
             if behaviour == "immutable" or expire_time is None or expire_time > time.time():
                 return value
             else:
@@ -61,10 +64,8 @@ def get_from_cache(cache: dict, url: str, params: dict, request_headers: dict):
                 return None
     return None
 
-
 def add_to_cache(cache: dict, url: str, params: dict, request_headers: dict, value, response_headers: dict, ttl: int):
-    directives = parse_cache_control_directives(value.headers.get("cache-control") or "")
-    behaviour = check_cache_behaviour(directives)
+    behaviour = check_cache_behaviour(value.headers)
     if behaviour == "no-store":
         return
 
