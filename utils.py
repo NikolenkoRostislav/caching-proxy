@@ -18,6 +18,18 @@ def parse_args():
 
     return parser.parse_args()
 
+def parse_cache_control_directives(cache_control: str):
+    return [d.strip() for d in cache_control.split(",")]
+
+def check_directive(directive: str, directives):
+    for d in directives:
+        if d.startswith(directive):
+            result = d.split("=")
+            if len(result) == 1:
+                return True
+            return result[1]
+    return False
+
 def get_from_cache(cache: dict, url: str, params: dict, request_headers: dict):
     params_set = frozenset(params.items()) if params else None
 
@@ -28,7 +40,9 @@ def get_from_cache(cache: dict, url: str, params: dict, request_headers: dict):
 
         if all(request_headers.get(h) == v for h, v in cache_vary_values):
             value, expire_time = cache[cache_key]
-            if expire_time is None or expire_time > time.time():
+            directives = parse_cache_control_directives(value.headers.get("cache-control") or "")
+            is_immutable = check_directive("immutable", directives)
+            if is_immutable or expire_time is None or expire_time > time.time():
                 return value
             else:
                 del cache[cache_key]
@@ -36,7 +50,7 @@ def get_from_cache(cache: dict, url: str, params: dict, request_headers: dict):
     return None
 
 
-def add_to_cache(cache: dict, url: str, params: dict, request_headers: dict, value, response_headers: dict, ttl: int = 3600):
+def add_to_cache(cache: dict, url: str, params: dict, request_headers: dict, value, response_headers: dict, ttl: int):
     vary = response_headers.get("Vary")
     vary_headers = [h.strip() for h in vary.split(",")] if vary else []
     vary_values = frozenset([(h, request_headers.get(h)) for h in vary_headers])

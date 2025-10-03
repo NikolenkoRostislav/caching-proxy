@@ -1,7 +1,7 @@
 import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
-from utils import parse_args, get_from_cache, add_to_cache
+from utils import *
 
 def create_app(origin: str, port: int):
     app = FastAPI()
@@ -36,12 +36,11 @@ def create_app(origin: str, port: int):
 
         if request.method == "GET":
             ttl = 3600
-            cache_control = forwarded.headers.get("cache-control") or ""
-            directives = [d.strip() for d in cache_control.split(",")]
-            for d in directives:
-                if d.startswith("max-age"):
-                    ttl = int(d.split("=")[1])
-            if not "no-cache" in directives and not "no-store" in directives:
+            directives = parse_cache_control_directives(forwarded.headers.get("cache-control") or "")
+            max_age = check_directive("max-age", directives)
+            if max_age:
+                ttl = int(max_age)
+            if not check_directive("no-cache", directives) and not check_directive("no-store", directives):
                 add_to_cache(cache, url, request.query_params, request.headers, forwarded, forwarded.headers, ttl)
 
         print("returned from forwarded response")
