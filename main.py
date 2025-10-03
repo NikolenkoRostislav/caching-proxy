@@ -40,8 +40,7 @@ def create_app(origin: str, port: int):
             max_age = check_directive("max-age", directives)
             if max_age:
                 ttl = int(max_age)
-            if not check_directive("no-cache", directives) and not check_directive("no-store", directives):
-                add_to_cache(cache, url, request.query_params, request.headers, forwarded, forwarded.headers, ttl)
+            add_to_cache(cache, url, request.query_params, request.headers, forwarded, forwarded.headers, ttl)
 
         print("returned from forwarded response")
         return Response(

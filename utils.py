@@ -30,6 +30,18 @@ def check_directive(directive: str, directives):
             return result[1]
     return False
 
+def check_cache_behaviour(directives):
+    if "no-store" in directives:
+        return "no-store"
+    elif "no-cache" in directives:
+        return "no-cache"
+    elif "immutable" in directives:
+        return "immutable"
+    elif "must-revalidate" in directives:
+        return "must-revalidate"
+    else:
+        return "default"
+
 def get_from_cache(cache: dict, url: str, params: dict, request_headers: dict):
     params_set = frozenset(params.items()) if params else None
 
@@ -41,8 +53,8 @@ def get_from_cache(cache: dict, url: str, params: dict, request_headers: dict):
         if all(request_headers.get(h) == v for h, v in cache_vary_values):
             value, expire_time = cache[cache_key]
             directives = parse_cache_control_directives(value.headers.get("cache-control") or "")
-            is_immutable = check_directive("immutable", directives)
-            if is_immutable or expire_time is None or expire_time > time.time():
+            behaviour = check_cache_behaviour(directives)
+            if behaviour == "immutable" or expire_time is None or expire_time > time.time():
                 return value
             else:
                 del cache[cache_key]
@@ -51,6 +63,11 @@ def get_from_cache(cache: dict, url: str, params: dict, request_headers: dict):
 
 
 def add_to_cache(cache: dict, url: str, params: dict, request_headers: dict, value, response_headers: dict, ttl: int):
+    directives = parse_cache_control_directives(value.headers.get("cache-control") or "")
+    behaviour = check_cache_behaviour(directives)
+    if behaviour == "no-store":
+        return
+
     vary = response_headers.get("Vary")
     vary_headers = [h.strip() for h in vary.split(",")] if vary else []
     vary_values = frozenset([(h, request_headers.get(h)) for h in vary_headers])
