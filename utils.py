@@ -46,34 +46,39 @@ def check_cache_behaviour(headers: dict):
     else:
         return "default"
 
-def get_from_cache(cache: dict, url: str, params: dict, request_headers: dict):
-    params_set = frozenset(params.items()) if params else None
+def get_from_cache(cache: dict, url: str, request):
+    params_set = frozenset(request.query_params.items()) if request.query_params else None
 
     for cache_key in cache.keys():
         cache_url, cache_params, cache_vary_values = cache_key
         if cache_url != url or cache_params != params_set:
             continue
 
-        if all(request_headers.get(h) == v for h, v in cache_vary_values):
-            value, expire_time = cache[cache_key]
-            behaviour = check_cache_behaviour(value.headers)
+        if all(request.headers.get(h) == v for h, v in cache_vary_values):
+            response, expire_time = cache[cache_key]
+            behaviour = check_cache_behaviour(response.headers)
             if behaviour == "immutable" or expire_time is None or expire_time > time.time():
-                return value
+                return response
             else:
                 del cache[cache_key]
                 return None
     return None
 
-def add_to_cache(cache: dict, url: str, params: dict, request_headers: dict, value, response_headers: dict, ttl: int):
-    behaviour = check_cache_behaviour(value.headers)
-    if behaviour == "no-store":
+def add_to_cache(cache: dict, url: str, request, response):
+    ttl = 3600
+    max_age = check_directive("max-age", response.headers)
+    if max_age:
+        ttl = int(max_age)
+
+    behaviour = check_cache_behaviour(response.headers)
+    if behaviour == "no-store" or behaviour == "no-cache":
         return
 
-    vary = response_headers.get("Vary")
+    vary = response.headers.get("Vary")
     vary_headers = [h.strip() for h in vary.split(",")] if vary else []
-    vary_values = frozenset([(h, request_headers.get(h)) for h in vary_headers])
-    params_set = frozenset(params.items()) if params else None
+    vary_values = frozenset([(h, request.headers.get(h)) for h in vary_headers])
+    params_set = frozenset(request.query_params.items()) if request.query_params else None
 
     key = (url, params_set, vary_values)
     expire_time = time.time() + ttl
-    cache[key] = (value, expire_time)
+    cache[key] = (response, expire_time)

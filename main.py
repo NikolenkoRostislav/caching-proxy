@@ -15,7 +15,7 @@ def create_app(origin: str, port: int):
         print(url)
         
         if request.method == "GET":
-            response = get_from_cache(cache, url, request.query_params, request.headers)
+            response = get_from_cache(cache, url, request)
 
             if response:
                 print("returned from cache")
@@ -26,7 +26,7 @@ def create_app(origin: str, port: int):
                 )
 
         async with httpx.AsyncClient() as client:
-            forwarded = await client.request(
+            response = await client.request(
                 method=request.method,
                 url=url,
                 params=request.query_params,
@@ -35,17 +35,13 @@ def create_app(origin: str, port: int):
             )
 
         if request.method == "GET":
-            ttl = 3600
-            max_age = check_directive("max-age", forwarded.headers)
-            if max_age:
-                ttl = int(max_age)
-            add_to_cache(cache, url, request.query_params, request.headers, forwarded, forwarded.headers, ttl)
+            add_to_cache(cache, url, request, response)
 
         print("returned from forwarded response")
         return Response(
-            content = forwarded.content,
-            status_code = forwarded.status_code,
-            headers = forwarded.headers,
+            content = response.content,
+            status_code = response.status_code,
+            headers = response.headers,
         )
 
     return app
