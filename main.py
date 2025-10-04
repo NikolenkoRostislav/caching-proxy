@@ -1,7 +1,7 @@
 import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
-from utils import *
+from utils import get_from_cache, add_to_cache, parse_args
 
 def create_app(origin: str, port: int):
     app = FastAPI()
@@ -15,8 +15,7 @@ def create_app(origin: str, port: int):
         print(url)
         
         if request.method == "GET":
-            response = get_from_cache(cache, url, request)
-
+            response = await get_from_cache(cache, url, request)
             if response:
                 print("returned from cache")
                 return Response(

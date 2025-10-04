@@ -1,5 +1,6 @@
 import time
 import argparse
+import httpx
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -22,7 +23,7 @@ def _parse_cache_control_directives(headers: dict):
     cache_control = headers.get("cache-control") or ""
     return [d.strip() for d in cache_control.split(",")]
 
-def check_directive(directive: str, headers: dict):
+def _check_directive(directive: str, headers: dict):
     directives = _parse_cache_control_directives(headers)
     if directive in directives:
         return True
@@ -32,7 +33,7 @@ def check_directive(directive: str, headers: dict):
             return d.split("=")[1]
     return False
 
-def check_cache_behaviour(headers: dict):
+def _check_cache_behaviour(headers: dict):
     directives = _parse_cache_control_directives(headers)
 
     if "no-store" in directives:
@@ -46,31 +47,56 @@ def check_cache_behaviour(headers: dict):
     else:
         return "default"
 
-def get_from_cache(cache: dict, url: str, request):
-    params_set = frozenset(request.query_params.items()) if request.query_params else None
+async def get_from_cache(cache: dict, url: str, request):
+    request_cache_behaviour = _check_cache_behaviour(request.headers)
+    if request_cache_behaviour == "no-store" or request_cache_behaviour == "no-cache":
+        return None
 
+    params_set = frozenset(request.query_params.items()) if request.query_params else None
     for cache_key in cache.keys():
         cache_url, cache_params, cache_vary_values = cache_key
         if cache_url != url or cache_params != params_set:
             continue
 
         if all(request.headers.get(h) == v for h, v in cache_vary_values):
-            response, expire_time = cache[cache_key]
-            behaviour = check_cache_behaviour(response.headers)
-            if behaviour == "immutable" or expire_time is None or expire_time > time.time():
-                return response
+            cached_response, expire_time = cache[cache_key] 
+            response_cache_behaviour = _check_cache_behaviour(cached_response.headers)
+
+            if request_cache_behaviour == "must-revalidate" or response_cache_behaviour == "must-revalidate":
+                new_headers = dict(request.headers)
+                new_headers["If-None-Match"] = cached_response.headers.get("ETag")
+                if new_headers["If-None-Match"] == None:
+                    return None
+
+                async with httpx.AsyncClient() as client:
+                    forwarded_response = await client.request(
+                        method=request.method,
+                        url=url,
+                        params=request.query_params,
+                        headers=new_headers
+                    )
+                
+                if forwarded_response.status_code == 304:
+                    return cached_response
+                else:
+                    del cache[cache_key]
+                    return None
+
+            if expire_time is None or expire_time > time.time():
+                return cached_response
             else:
                 del cache[cache_key]
                 return None
+
     return None
 
 def add_to_cache(cache: dict, url: str, request, response):
     ttl = 3600
-    max_age = check_directive("max-age", response.headers)
+    max_age = _check_directive("max-age", response.headers)
     if max_age:
         ttl = int(max_age)
 
-    behaviour = check_cache_behaviour(response.headers)
+    behaviour = _check_cache_behaviour(response.headers)
     if behaviour == "no-store" or behaviour == "no-cache":
         return
 
