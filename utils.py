@@ -82,9 +82,14 @@ async def get_from_cache(cache: dict, url: str, request):
                     del cache[cache_key]
                     return None
 
-            if expire_time is None or expire_time > time.time():
+            if response_cache_behaviour == "immutable" or expire_time is None or expire_time > time.time():
                 return cached_response
             else:
+                max_stale = _check_directive("max-stale", request.headers)
+                #if max_stale is False then no such directive was found, if it's True then the directive with no value was found so it accepts any staleness
+                if max_stale is False or max_stale is True or expire_time - time.time() + int(max_stale) > 0:
+                    return cached_response
+
                 del cache[cache_key]
                 return None
 
