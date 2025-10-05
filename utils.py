@@ -47,6 +47,14 @@ def _check_cache_behaviour(headers: dict):
     else:
         return "default"
 
+def _make_cache_key(url, request, response):
+    vary = response.headers.get("Vary")
+    vary_headers = [h.strip() for h in vary.split(",")] if vary else []
+    vary_values = frozenset([(h, request.headers.get(h)) for h in vary_headers])
+    params_set = frozenset(request.query_params.items()) if request.query_params else None
+
+    return (url, params_set, vary_values)
+
 async def get_from_cache(cache: dict, url: str, request):
     request_cache_behaviour = _check_cache_behaviour(request.headers)
     if request_cache_behaviour == "no-store" or request_cache_behaviour == "no-cache":
@@ -105,11 +113,6 @@ def add_to_cache(cache: dict, url: str, request, response):
     if behaviour == "no-store" or behaviour == "no-cache":
         return
 
-    vary = response.headers.get("Vary")
-    vary_headers = [h.strip() for h in vary.split(",")] if vary else []
-    vary_values = frozenset([(h, request.headers.get(h)) for h in vary_headers])
-    params_set = frozenset(request.query_params.items()) if request.query_params else None
-
-    key = (url, params_set, vary_values)
+    key = _make_cache_key(url, request, response)
     expire_time = time.time() + ttl
     cache[key] = (response, expire_time)
