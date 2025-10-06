@@ -131,4 +131,4 @@ def add_to_cache(r, url: str, request, response):
     }
 
     data[sub_key] = value
-    r.set(key, json.dumps(data), ex=ttl)
+    r.set(key, json.dumps(data))
