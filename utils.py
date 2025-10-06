@@ -1,6 +1,8 @@
-import time
 import argparse
+import json
+import time
 import httpx
+import redis
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -47,32 +49,33 @@ def _check_cache_behaviour(headers: dict):
     else:
         return "default"
 
-def _make_cache_key(url, request, response):
-    vary = response.headers.get("Vary")
-    vary_headers = [h.strip() for h in vary.split(",")] if vary else []
-    vary_values = frozenset([(h, request.headers.get(h)) for h in vary_headers])
+def _make_cache_key(url, request) -> str:
     params_set = frozenset(request.query_params.items()) if request.query_params else None
 
-    return (url, params_set, vary_values)
+    key_data = {
+        "url": url,
+        "params": sorted(params_set) if params_set else None,
+    }
+    return "cache:" + json.dumps(key_data, sort_keys=True)
 
-async def get_from_cache(cache: dict, url: str, request):
+async def get_from_cache(r, url: str, request):
     request_cache_behaviour = _check_cache_behaviour(request.headers)
     if request_cache_behaviour == "no-store" or request_cache_behaviour == "no-cache":
         return None
 
-    params_set = frozenset(request.query_params.items()) if request.query_params else None
-    for cache_key in cache.keys():
-        cache_url, cache_params, cache_vary_values = cache_key
-        if cache_url != url or cache_params != params_set:
-            continue
+    key = _make_cache_key(url, request)
+    raw = r.get(key)
+    responses = {} if raw is None else json.loads(raw)
 
-        if all(request.headers.get(h) == v for h, v in cache_vary_values):
-            cached_response, expire_time = cache[cache_key] 
-            response_cache_behaviour = _check_cache_behaviour(cached_response.headers)
+    for vary_headers_key_str in responses.keys():
+        vary_headers_key = json.loads(vary_headers_key_str)
+        if all(request.headers.get(h) == v for h, v in vary_headers_key):
+            cached_response = responses[vary_headers_key_str] 
+            response_cache_behaviour = _check_cache_behaviour(cached_response["headers"])
 
             if request_cache_behaviour == "must-revalidate" or response_cache_behaviour == "must-revalidate":
                 new_headers = dict(request.headers)
-                new_headers["If-None-Match"] = cached_response.headers.get("ETag")
+                new_headers["If-None-Match"] = cached_response["headers"].get("ETag")
                 if new_headers["If-None-Match"] == None:
                     return None
 
@@ -87,9 +90,9 @@ async def get_from_cache(cache: dict, url: str, request):
                 if forwarded_response.status_code == 304:
                     return cached_response
                 else:
-                    del cache[cache_key]
                     return None
 
+            expire_time = cached_response["expire_time"]
             if response_cache_behaviour == "immutable" or expire_time is None or expire_time > time.time():
                 return cached_response
             else:
@@ -98,12 +101,11 @@ async def get_from_cache(cache: dict, url: str, request):
                 if max_stale is False or max_stale is True or expire_time - time.time() + int(max_stale) > 0:
                     return cached_response
 
-                del cache[cache_key]
                 return None
 
     return None
 
-def add_to_cache(cache: dict, url: str, request, response):
+def add_to_cache(r, url: str, request, response):
     ttl = 3600
     max_age = _check_directive("max-age", response.headers)
     if max_age:
@@ -113,6 +115,20 @@ def add_to_cache(cache: dict, url: str, request, response):
     if behaviour == "no-store" or behaviour == "no-cache":
         return
 
-    key = _make_cache_key(url, request, response)
-    expire_time = time.time() + ttl
-    cache[key] = (response, expire_time)
+    key = _make_cache_key(url, request)
+    raw = r.get(key)
+    data = {} if raw is None else json.loads(raw)
+
+    vary = response.headers.get("Vary")
+    vary_headers = [h.strip() for h in vary.split(",")] if vary else []
+    sub_key = json.dumps([(h, request.headers.get(h)) for h in vary_headers])
+
+    value = {
+        "status_code": response.status_code,
+        "headers": dict(response.headers),
+        "content": response.text,
+        "expire_time": time.time() + ttl
+    }
+
+    data[sub_key] = value
+    r.set(key, json.dumps(data), ex=ttl)
