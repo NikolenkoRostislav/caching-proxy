@@ -42,8 +42,6 @@ async def get_from_cache(r, url: str, request):
                 return await _revalidate_cache(url, request, cached_response)
 
             expire_time = cached_response["expire_time"]
-            print(expire_time)
-            print(time.time())
             if response_cache_behaviour == "immutable" or expire_time is None or expire_time > time.time():
                 return cached_response
             else:
