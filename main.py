@@ -2,7 +2,8 @@ import httpx
 import redis
 import uvicorn
 from fastapi import FastAPI, Request, Response
-from utils import get_from_cache, add_to_cache, parse_args
+from utils import parse_args
+from cache import add_to_cache, get_from_cache
 from config import settings
 
 def create_app(origin: str, port: int):
