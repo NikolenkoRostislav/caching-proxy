@@ -37,17 +37,12 @@ def _check_directive(directive: str, headers: dict):
 
 def _check_cache_behaviour(headers: dict):
     directives = _parse_cache_control_directives(headers)
+    options = ["private", "no-store", "no-cache", "immutable", "must-revalidate"]
 
-    if "no-store" in directives:
-        return "no-store"
-    elif "no-cache" in directives:
-        return "no-cache"
-    elif "immutable" in directives:
-        return "immutable"
-    elif "must-revalidate" in directives:
-        return "must-revalidate"
-    else:
-        return "default"
+    for directive in options:
+        if directive in directives:
+            return directive
+    return "default"
 
 def _make_cache_key(url, request) -> str:
     params_set = frozenset(request.query_params.items()) if request.query_params else None
@@ -58,9 +53,27 @@ def _make_cache_key(url, request) -> str:
     }
     return "cache:" + json.dumps(key_data, sort_keys=True)
 
+async def _revalidate_cache(url, request, cached_response):
+    new_headers = dict(request.headers)
+    new_headers["If-None-Match"] = cached_response["headers"].get("etag")
+    if new_headers["If-None-Match"] == None:
+        return None
+
+    async with httpx.AsyncClient() as client:
+        forwarded_response = await client.request(
+            method=request.method,
+            url=url,
+            params=request.query_params,
+            headers=new_headers
+        )
+    if forwarded_response.status_code == 304:
+        return cached_response
+    else:
+        return None
+
 async def get_from_cache(r, url: str, request):
     request_cache_behaviour = _check_cache_behaviour(request.headers)
-    if request_cache_behaviour == "no-store" or request_cache_behaviour == "no-cache":
+    if request_cache_behaviour in ("no-store", "no-cache", "private"):
         return None
 
     key = _make_cache_key(url, request)
@@ -73,24 +86,8 @@ async def get_from_cache(r, url: str, request):
             cached_response = responses[vary_headers_key_str] 
             response_cache_behaviour = _check_cache_behaviour(cached_response["headers"])
 
-            if request_cache_behaviour == "must-revalidate" or response_cache_behaviour == "must-revalidate":
-                new_headers = dict(request.headers)
-                new_headers["If-None-Match"] = cached_response["headers"].get("ETag")
-                if new_headers["If-None-Match"] == None:
-                    return None
-
-                async with httpx.AsyncClient() as client:
-                    forwarded_response = await client.request(
-                        method=request.method,
-                        url=url,
-                        params=request.query_params,
-                        headers=new_headers
-                    )
-                
-                if forwarded_response.status_code == 304:
-                    return cached_response
-                else:
-                    return None
+            if "must-revalidate" in (request_cache_behaviour, response_cache_behaviour):
+                return await _revalidate_cache(url, request, cached_response)
 
             expire_time = cached_response["expire_time"]
             if response_cache_behaviour == "immutable" or expire_time is None or expire_time > time.time():
@@ -100,9 +97,7 @@ async def get_from_cache(r, url: str, request):
                 #if max_stale is False then no such directive was found, if it's True then the directive with no value was found so it accepts any staleness
                 if max_stale is False or max_stale is True or expire_time - time.time() + int(max_stale) > 0:
                     return cached_response
-
                 return None
-
     return None
 
 def add_to_cache(r, url: str, request, response):
@@ -112,7 +107,7 @@ def add_to_cache(r, url: str, request, response):
         ttl = int(max_age)
 
     behaviour = _check_cache_behaviour(response.headers)
-    if behaviour == "no-store" or behaviour == "no-cache":
+    if behaviour in ("no-store", "no-cache", "private"):
         return
 
     key = _make_cache_key(url, request)
