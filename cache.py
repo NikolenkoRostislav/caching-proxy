@@ -76,3 +76,20 @@ def add_to_cache(r, url: str, request, response):
     sub_key = make_vary_key(request, response)
     data[sub_key] = value
     r.set(key, json.dumps(data))
+
+def clear_stale_cache(r):
+    current_time = time.time()
+
+    for key in r.scan_iter('*'):
+        values = json.loads(r.get(key))
+        if not values:
+            continue
+
+        fresh = { sub_key: value for sub_key, value in values.items() if value.get("expire_time", 0) > current_time }
+
+        if fresh != values:
+            if fresh:
+                r.set(key, json.dumps(fresh))
+            else:
+                r.delete(key)
+            print(f"Cleaned {key}: {len(values) - len(fresh)} stale entries removed.")

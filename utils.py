@@ -14,6 +14,11 @@ def parse_args():
         required=True,
         help="Origin server URL to forward requests to"
     )
+    parser.add_argument(
+        "--clear", "-c",
+        type=str,
+        help="Clear stale/all cache"
+    )
 
     return parser.parse_args()
 

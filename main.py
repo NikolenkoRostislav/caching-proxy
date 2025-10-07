@@ -3,10 +3,10 @@ import redis
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from utils import parse_args
-from cache import add_to_cache, get_from_cache
+from cache import add_to_cache, get_from_cache, clear_stale_cache
 from config import settings
 
-def create_app(origin: str, port: int):
+def create_app(origin: str, port: int, clear):
     app = FastAPI()
     r = redis.Redis(
         host=settings.REDIS_HOST,
@@ -14,7 +14,11 @@ def create_app(origin: str, port: int):
         password=settings.REDIS_PASSWORD,
         decode_responses=True
     )
-    #r.flushdb() #only for testing!!!!
+
+    if(clear == "all"):
+        r.flushdb()
+    elif(clear == "stale"):
+        clear_stale_cache(r)
 
     @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     async def proxy(path: str, request: Request):
@@ -56,6 +60,6 @@ def create_app(origin: str, port: int):
 
 if __name__ == "__main__":
     args = parse_args()
-    app = create_app(args.origin, args.port)
+    app = create_app(args.origin, args.port, args.clear)
 
     uvicorn.run(app, host="0.0.0.0", port=args.port)
