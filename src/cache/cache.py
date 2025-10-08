@@ -2,8 +2,8 @@ import json
 import time
 import httpx
 import redis
-from directives import check_directive, check_cache_behaviour
-from keys import make_cache_key, make_vary_key
+from .directives import check_directive, check_cache_behaviour
+from .keys import make_cache_key, make_vary_key
 
 async def _revalidate_cache(url, request, cached_response):
     new_headers = dict(request.headers)
